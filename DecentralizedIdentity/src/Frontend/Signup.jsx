@@ -5,31 +5,39 @@ import useFaceRecognition from "../Frontend/hooks/useFaceRecognition";
 
 export default function Signup() {
   const { account, connectWallet } = useWallet();
-  const { videoRef, startCamera, captureFace } = useFaceRecognition();
+  const { videoRef, startCamera, stopCamera, captureFace } = useFaceRecognition();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState("");
   const [faceReady, setFaceReady] = useState(false);
+  const [faceDescriptor, setFaceDescriptor] = useState(null);
   const navigate = useNavigate();
 
   const handleDetectFace = async () => {
-    const detections = await captureFace();
-    if (detections.length > 0) {
+    const descriptor = await captureFace();
+    if (descriptor) {
+      setFaceDescriptor(descriptor);
       setFaceReady(true);
       setStatus("✅ Face detected! Click OK to continue.");
+      stopCamera(); // stop camera automatically
     } else {
       setStatus("❌ No face detected, try again.");
     }
   };
 
   const handleSignup = () => {
+    if (!faceDescriptor) {
+      setStatus("⚠️ Please capture your face first.");
+      return;
+    }
+
     const user = {
       name,
       email,
       account,
-      // store only the first face descriptor
-      faceDescriptor: "saved" 
+      faceDescriptor: Array.from(faceDescriptor), // convert Float32Array to normal array
     };
+
     localStorage.setItem("user", JSON.stringify(user));
     setStatus("Signup successful ✅ Redirecting...");
     setTimeout(() => navigate("/login"), 2000);
