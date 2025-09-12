@@ -7,7 +7,7 @@ export default defineConfig({
    server: {
     fs: {
       Strict:false,
-      allow: ["./", "public"], // ✅ explicitly allow serving from public
+      allow: ["./", "public"], // explicitly allow serving from public
     },
   },
 })
