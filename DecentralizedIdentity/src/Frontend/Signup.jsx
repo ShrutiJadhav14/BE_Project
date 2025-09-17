@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import useWallet from "../Frontend/hooks/useWallet";
 import useFaceRecognition from "../Frontend/hooks/useFaceRecognition";
+import { registerUser } from "../utils/contract";
 
 export default function Signup() {
   const { account, connectWallet } = useWallet();
@@ -11,29 +12,34 @@ export default function Signup() {
   const [status, setStatus] = useState("");
   const [faceReady, setFaceReady] = useState(false);
   const navigate = useNavigate();
+const handleDetectFace = async () => {
+  const detections = await captureFace();
+  if (detections.length > 0) {
+    // Store the first face descriptor
+    const descriptor = Array.from(detections[0].descriptor); // convert Float32Array → plain array
+    localStorage.setItem("faceDescriptor", JSON.stringify(descriptor));
 
-  const handleDetectFace = async () => {
-    const detections = await captureFace();
-    if (detections.length > 0) {
-      setFaceReady(true);
-      setStatus("✅ Face detected! Click OK to continue.");
-    } else {
-      setStatus("❌ No face detected, try again.");
-    }
-  };
+    setFaceReady(true);
+    setStatus("✅ Face detected! Click OK to continue.");
+  } else {
+    setStatus("❌ No face detected, try again.");
+  }
+};
+const handleSignup = async () => {
+  try {
+    await window.ethereum.request({ method: "eth_requestAccounts" });
 
-  const handleSignup = () => {
-    const user = {
-      name,
-      email,
-      account,
-      // store only the first face descriptor
-      faceDescriptor: "saved" 
-    };
-    localStorage.setItem("user", JSON.stringify(user));
-    setStatus("Signup successful ✅ Redirecting...");
+    const descriptor = JSON.parse(localStorage.getItem("faceDescriptor"));
+
+    await registerUser(name, email, JSON.stringify(descriptor));
+
+    setStatus("✅ Signup successful!");
     setTimeout(() => navigate("/login"), 2000);
-  };
+  } catch (err) {
+    console.error(err);
+    setStatus("❌ Error: " + err.message);
+  }
+};
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-6">
