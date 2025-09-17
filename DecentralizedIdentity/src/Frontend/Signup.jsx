@@ -6,11 +6,12 @@ import { registerUser } from "../utils/contract";
 
 export default function Signup() {
   const { account, connectWallet } = useWallet();
-  const { videoRef, startCamera, captureFace } = useFaceRecognition();
+  const { videoRef, startCamera, stopCamera, captureFace } = useFaceRecognition();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState("");
   const [faceReady, setFaceReady] = useState(false);
+  const [faceDescriptor, setFaceDescriptor] = useState(null);
   const navigate = useNavigate();
 const handleDetectFace = async () => {
   const detections = await captureFace();

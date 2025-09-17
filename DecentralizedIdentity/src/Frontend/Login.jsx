@@ -1,31 +1,42 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import useFaceRecognition from "../Frontend/hooks/useFaceRecognition";
+import * as faceapi from "face-api.js";
 
 export default function Login() {
-  const { videoRef, startCamera, captureFace } = useFaceRecognition();
+  const { videoRef, startCamera, stopCamera, captureFace } = useFaceRecognition();
   const [status, setStatus] = useState("");
   const [faceReady, setFaceReady] = useState(false);
   const navigate = useNavigate();
 
   const handleDetectFace = async () => {
-    const detections = await captureFace();
-    if (detections.length > 0) {
-      setFaceReady(true);
-      setStatus("✅ Face detected! Click OK to login.");
-    } else {
+    const liveDescriptor = await captureFace();
+    if (!liveDescriptor) {
       setStatus("❌ No face detected, try again.");
+      return;
+    }
+
+    const user = JSON.parse(localStorage.getItem("user"));
+    if (!user) {
+      setStatus("❌ No user found, please signup first.");
+      return;
+    }
+
+    const storedDescriptor = new Float32Array(user.faceDescriptor);
+    const distance = faceapi.euclideanDistance(liveDescriptor, storedDescriptor);
+
+    if (distance < 0.5) { // threshold
+      setFaceReady(true);
+      setStatus("✅ Face matched! Click OK to login.");
+      stopCamera();
+    } else {
+      setStatus("❌ Face does not match. Try again.");
     }
   };
 
   const handleLogin = () => {
-    const user = JSON.parse(localStorage.getItem("user"));
-    if (user) {
-      setStatus("Login successful ✅ Redirecting...");
-      setTimeout(() => navigate("/dashboard"), 2000);
-    } else {
-      setStatus("❌ No user found, please signup first.");
-    }
+    setStatus("Login successful ✅ Redirecting...");
+    setTimeout(() => navigate("/dashboard"), 2000);
   };
 
   return (
