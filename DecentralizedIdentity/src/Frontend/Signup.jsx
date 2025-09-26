@@ -2,45 +2,59 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import useWallet from "../Frontend/hooks/useWallet";
 import useFaceRecognition from "../Frontend/hooks/useFaceRecognition";
+import { registerUser } from "../utils/contract";
 
 export default function Signup() {
   const { account, connectWallet } = useWallet();
-  const { videoRef, startCamera, stopCamera, captureFace } = useFaceRecognition();
+  const { videoRef, startCamera, captureFace } = useFaceRecognition();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState("");
   const [faceReady, setFaceReady] = useState(false);
-  const [faceDescriptor, setFaceDescriptor] = useState(null);
   const navigate = useNavigate();
 
+  // ✅ Detect face (original)
   const handleDetectFace = async () => {
-    const descriptor = await captureFace();
-    if (descriptor) {
-      setFaceDescriptor(descriptor);
-      setFaceReady(true);
-      setStatus("✅ Face detected! Click OK to continue.");
-      stopCamera(); // stop camera automatically
-    } else {
-      setStatus("❌ No face detected, try again.");
+    try {
+      const detections = await captureFace();
+      if (detections && detections.length > 0) {
+        const descriptor = Array.from(detections); // convert Float32Array → array
+        localStorage.setItem("faceDescriptor", JSON.stringify(descriptor));
+        setFaceReady(true);
+        setStatus("✅ Face detected! Click OK to continue.");
+      } else {
+        setStatus("❌ No face detected, try again.");
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus("⚠️ Error detecting face: " + err.message);
     }
   };
 
-  const handleSignup = () => {
-    if (!faceDescriptor) {
-      setStatus("⚠️ Please capture your face first.");
-      return;
+  // ✅ Simulate face for testing (camera-free)
+  const handleSimulateFace = () => {
+    const fakeDescriptor = new Array(128).fill(0.5); // 128-dim fake face descriptor
+    localStorage.setItem("faceDescriptor", JSON.stringify(fakeDescriptor));
+    setFaceReady(true);
+    setStatus("🟢 Simulated face ready for testing!");
+  };
+
+  // ✅ Signup handler
+  const handleSignup = async () => {
+    try {
+      if (!account) {
+        await connectWallet(); // Ensure wallet is connected
+      }
+
+      const faceDescriptor = JSON.parse(localStorage.getItem("faceDescriptor")) || [];
+      await registerUser(name, email, faceDescriptor);
+
+      setStatus("✅ Signup successful!");
+      navigate("/login");
+    } catch (err) {
+      console.error(err);
+      setStatus("❌ Error: " + err.message);
     }
-
-    const user = {
-      name,
-      email,
-      account,
-      faceDescriptor: Array.from(faceDescriptor), // convert Float32Array to normal array
-    };
-
-    localStorage.setItem("user", JSON.stringify(user));
-    setStatus("Signup successful ✅ Redirecting...");
-    setTimeout(() => navigate("/login"), 2000);
   };
 
   return (
@@ -69,6 +83,7 @@ export default function Signup() {
         {account ? "Wallet Connected" : "Connect MetaMask"}
       </button>
 
+      {/* Original video element */}
       <video ref={videoRef} autoPlay muted className="w-80 h-60 border rounded" />
 
       <div className="flex space-x-2 mt-2">
@@ -84,6 +99,15 @@ export default function Signup() {
         >
           Detect Face
         </button>
+
+        {/* Camera-free test button */}
+        <button
+          onClick={handleSimulateFace}
+          className="bg-yellow-500 text-white px-4 py-2 rounded"
+        >
+          Simulate Face
+        </button>
+
         {faceReady && (
           <button
             onClick={handleSignup}
