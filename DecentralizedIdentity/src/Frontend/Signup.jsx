@@ -6,41 +6,56 @@ import { registerUser } from "../utils/contract";
 
 export default function Signup() {
   const { account, connectWallet } = useWallet();
-  const { videoRef, startCamera, stopCamera, captureFace } = useFaceRecognition();
+  const { videoRef, startCamera, captureFace } = useFaceRecognition();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState("");
   const [faceReady, setFaceReady] = useState(false);
-  const [faceDescriptor, setFaceDescriptor] = useState(null);
   const navigate = useNavigate();
-const handleDetectFace = async () => {
-  const detections = await captureFace();
-  if (detections.length > 0) {
-    // Store the first face descriptor
-    const descriptor = Array.from(detections[0].descriptor); // convert Float32Array → plain array
-    localStorage.setItem("faceDescriptor", JSON.stringify(descriptor));
 
+  // ✅ Detect face (original)
+  const handleDetectFace = async () => {
+    try {
+      const detections = await captureFace();
+      if (detections && detections.length > 0) {
+        const descriptor = Array.from(detections); // convert Float32Array → array
+        localStorage.setItem("faceDescriptor", JSON.stringify(descriptor));
+        setFaceReady(true);
+        setStatus("✅ Face detected! Click OK to continue.");
+      } else {
+        setStatus("❌ No face detected, try again.");
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus("⚠️ Error detecting face: " + err.message);
+    }
+  };
+
+  // ✅ Simulate face for testing (camera-free)
+  const handleSimulateFace = () => {
+    const fakeDescriptor = new Array(128).fill(0.5); // 128-dim fake face descriptor
+    localStorage.setItem("faceDescriptor", JSON.stringify(fakeDescriptor));
     setFaceReady(true);
-    setStatus("✅ Face detected! Click OK to continue.");
-  } else {
-    setStatus("❌ No face detected, try again.");
-  }
-};
-const handleSignup = async () => {
-  try {
-    await window.ethereum.request({ method: "eth_requestAccounts" });
+    setStatus("🟢 Simulated face ready for testing!");
+  };
 
-    const descriptor = JSON.parse(localStorage.getItem("faceDescriptor"));
+  // ✅ Signup handler
+  const handleSignup = async () => {
+    try {
+      if (!account) {
+        await connectWallet(); // Ensure wallet is connected
+      }
 
-    await registerUser(name, email, JSON.stringify(descriptor));
+      const faceDescriptor = JSON.parse(localStorage.getItem("faceDescriptor")) || [];
+      await registerUser(name, email, faceDescriptor);
 
-    setStatus("✅ Signup successful!");
-    setTimeout(() => navigate("/login"), 2000);
-  } catch (err) {
-    console.error(err);
-    setStatus("❌ Error: " + err.message);
-  }
-};
+      setStatus("✅ Signup successful!");
+      navigate("/login");
+    } catch (err) {
+      console.error(err);
+      setStatus("❌ Error: " + err.message);
+    }
+  };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-6">
@@ -68,6 +83,7 @@ const handleSignup = async () => {
         {account ? "Wallet Connected" : "Connect MetaMask"}
       </button>
 
+      {/* Original video element */}
       <video ref={videoRef} autoPlay muted className="w-80 h-60 border rounded" />
 
       <div className="flex space-x-2 mt-2">
@@ -83,6 +99,15 @@ const handleSignup = async () => {
         >
           Detect Face
         </button>
+
+        {/* Camera-free test button */}
+        <button
+          onClick={handleSimulateFace}
+          className="bg-yellow-500 text-white px-4 py-2 rounded"
+        >
+          Simulate Face
+        </button>
+
         {faceReady && (
           <button
             onClick={handleSignup}
