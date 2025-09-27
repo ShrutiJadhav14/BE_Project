@@ -1,19 +1,31 @@
 import { useEffect, useRef, useState } from "react";
 import * as faceapi from "face-api.js";
-import * as tf from "@tensorflow/tfjs";
-import "@tensorflow/tfjs-backend-cpu";
-import "@tensorflow/tfjs-backend-webgl";
+import * as tf from "@tensorflow/tfjs";           // TensorFlow.js core
+import "@tensorflow/tfjs-backend-cpu";            // CPU backend
+import "@tensorflow/tfjs-backend-webgl";          // WebGL backend
 
 export default function useFaceRecognition() {
   const videoRef = useRef(null);
   const [modelsLoaded, setModelsLoaded] = useState(false);
 
+  // Load Face API models
   useEffect(() => {
     const loadModels = async () => {
       try {
+<<<<<<< HEAD
         await tf.setBackend("webgl");
         await tf.ready();
 
+=======
+        // ✅ Prefer WebGL backend, fallback to CPU
+        await tf.setBackend("webgl").catch(async () => {
+          console.warn("⚠️ WebGL not supported, falling back to CPU");
+          await tf.setBackend("cpu");
+        });
+        await tf.ready();
+
+        // ✅ Load models from public/models
+>>>>>>> dbd23d6669305a166d86e0c9a3dec234a12bd774
         const MODEL_URL = "/models";
         await Promise.all([
           faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
@@ -61,8 +73,18 @@ export default function useFaceRecognition() {
         .withFaceLandmarks()
         .withFaceDescriptor();
 
+<<<<<<< HEAD
       if (!detection) return null;
       return detection.descriptor;
+=======
+      if (!detection) {
+        console.log("⚠️ No face detected");
+        return null;
+      }
+
+      console.log("✅ Face detection successful");
+      return detection.descriptor; // return single descriptor
+>>>>>>> dbd23d6669305a166d86e0c9a3dec234a12bd774
     } catch (err) {
       console.error("❌ Error capturing face:", err);
       return null;
