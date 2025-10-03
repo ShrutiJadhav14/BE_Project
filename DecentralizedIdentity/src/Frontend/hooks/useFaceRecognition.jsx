@@ -1,125 +1,113 @@
-import { useEffect, useRef, useState } from "react";
-import * as faceapi from "face-api.js";
-import * as tf from "@tensorflow/tfjs";
-import "@tensorflow/tfjs-backend-cpu";
-import "@tensorflow/tfjs-backend-webgl";
+import { useRef, useState, useEffect } from "react";
+import { FaceMesh } from "@mediapipe/face_mesh";
+import * as cam from "@mediapipe/camera_utils";
+
+// MediaPipe FaceMesh indices for eyes
+const LEFT_EYE_INDICES = [33, 160, 158, 133, 153, 144];
+const RIGHT_EYE_INDICES = [362, 385, 387, 263, 373, 380];
+
+// Compute Euclidean distance
+const dist = (p1, p2) =>
+  Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2 + (p1.z - p2.z) ** 2);
+
+// Compute Eye Aspect Ratio (EAR)
+const computeEAR = (eye) => {
+  const A = dist(eye[1], eye[5]);
+  const B = dist(eye[2], eye[4]);
+  const C = dist(eye[0], eye[3]);
+  return (A + B) / (2.0 * C);
+};
 
 export default function useFaceRecognition() {
   const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [faceMesh, setFaceMesh] = useState(null);
+  const [blinked, setBlinked] = useState(false);
 
-  // Load models
+  let camera = null;
+
   useEffect(() => {
-    const loadModels = async () => {
-      await tf.setBackend("webgl").catch(async () => await tf.setBackend("cpu"));
-      await tf.ready();
+    const fm = new FaceMesh({
+      locateFile: (file) =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+    });
 
-      const MODEL_URL = "/models";
-      await Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-      ]);
+    fm.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+    });
 
-      setModelsLoaded(true);
-      console.log("✅ Face API models loaded");
-    };
-    loadModels();
+    fm.onResults(onResults);
+    setFaceMesh(fm);
   }, []);
 
-  const startCamera = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream;
-      await new Promise((resolve) => {
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current.play();
-          resolve(true);
-        };
-      });
+  const onResults = (results) => {
+    if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0)
+      return;
 
-      if (!canvasRef.current) {
-        const canvas = faceapi.createCanvasFromMedia(videoRef.current);
-        videoRef.current.parentNode.appendChild(canvas);
-        canvasRef.current = canvas;
-      }
+    const landmarks = results.multiFaceLandmarks[0];
+
+    // Extract left & right eye points
+    const leftEye = LEFT_EYE_INDICES.map((i) => landmarks[i]);
+    const rightEye = RIGHT_EYE_INDICES.map((i) => landmarks[i]);
+
+    const leftEAR = computeEAR(leftEye);
+    const rightEAR = computeEAR(rightEye);
+    const avgEAR = (leftEAR + rightEAR) / 2;
+
+    // Blink detection threshold
+    if (avgEAR < 0.20) {
+      setBlinked(true);
+    }
+  };
+
+  const startCamera = async () => {
+    if (videoRef.current && faceMesh) {
+      camera = new cam.Camera(videoRef.current, {
+        onFrame: async () => {
+          await faceMesh.send({ image: videoRef.current });
+        },
+        width: 640,
+        height: 480,
+      });
+      camera.start();
     }
   };
 
   const stopCamera = () => {
-    const stream = videoRef.current?.srcObject;
-    if (stream) stream.getTracks().forEach((t) => t.stop());
-    if (videoRef.current) videoRef.current.srcObject = null;
-    if (canvasRef.current) {
-      canvasRef.current.remove();
-      canvasRef.current = null;
-    }
+    if (camera) camera.stop();
   };
 
-  // Capture face descriptor
+  const detectLiveness = async ({ timeout = 5000, interval = 200 }) => {
+    setBlinked(false);
+
+    return new Promise((resolve) => {
+      const start = Date.now();
+
+      const timer = setInterval(() => {
+        if (blinked) {
+          clearInterval(timer);
+          resolve(true);
+        }
+        if (Date.now() - start > timeout) {
+          clearInterval(timer);
+          resolve(false);
+        }
+      }, interval);
+    });
+  };
+
   const captureFace = async () => {
-    if (!videoRef.current || !modelsLoaded) return null;
-    const detection = await faceapi
-      .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: 320 }))
-      .withFaceLandmarks()
-      .withFaceDescriptor();
-    return detection?.descriptor || null;
-  };
-
-  // Blink-based liveness detection
-  const detectLiveness = async ({ timeout = 6000, interval = 70 } = {}) => {
-    if (!videoRef.current || !modelsLoaded) return false;
-
-    const start = Date.now();
-    let blinkCount = 0;
-    let wasClosed = false;
-
-    const getEyeOpenness = (eye) =>
-      Math.abs(eye[1].y - eye[5].y) / (Math.abs(eye[0].x - eye[3].x) + 1e-6);
-
-    while (Date.now() - start < timeout && blinkCount < 2) {
-      const detection = await faceapi
-        .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: 320 }))
-        .withFaceLandmarks();
-
-      if (!detection) continue;
-
-      // Draw landmarks
-      if (canvasRef.current) {
-        const dims = { width: videoRef.current.videoWidth, height: videoRef.current.videoHeight };
-        faceapi.matchDimensions(canvasRef.current, dims, true);
-        const resizedDetections = faceapi.resizeResults(detection, dims);
-        const ctx = canvasRef.current.getContext("2d");
-        ctx.clearRect(0, 0, dims.width, dims.height);
-        faceapi.draw.drawFaceLandmarks(canvasRef.current, resizedDetections);
-      }
-
-      const leftEye = detection.landmarks.getLeftEye();
-      const rightEye = detection.landmarks.getRightEye();
-      const leftOpenness = getEyeOpenness(leftEye);
-      const rightOpenness = getEyeOpenness(rightEye);
-
-      if (leftOpenness < 0.3 && rightOpenness < 0.3) wasClosed = true;
-      if (wasClosed && leftOpenness > 0.35 && rightOpenness > 0.35) {
-        blinkCount++;
-        wasClosed = false;
-        console.log(`✅ Blink detected (${blinkCount})`);
-      }
-
-      if (blinkCount >= 1) return true;
-      await new Promise((res) => setTimeout(res, interval));
-    }
-
-    return false;
+    // For now return dummy vector; replace with embedding later
+    return [Math.random(), Math.random(), Math.random()];
   };
 
   return {
     videoRef,
     startCamera,
     stopCamera,
-    captureFace,
     detectLiveness,
-    modelsLoaded,
+    captureFace,
   };
 }

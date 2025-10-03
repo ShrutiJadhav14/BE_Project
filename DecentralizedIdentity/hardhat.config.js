@@ -1,20 +1,18 @@
 import "@nomicfoundation/hardhat-toolbox";
-import "dotenv/config"; // Automatically loads .env variables
+import "dotenv/config";
 
 export default {
-  solidity: "0.8.20",
-  networks: {
-    // Local Hardhat network (dummy ETH for testing)
-    hardhat: {
-      chainId: 31337
-    },
-
-    // Sepolia testnet
-    sepolia: {
-      url: process.env.SEPOLIA_URL || "",         // Your Sepolia RPC URL
-      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [], // Your wallet private key
-      chainId: 11155111
-    }
+  solidity: {
+    compilers: [{ version: "0.8.28" }],
   },
-
+  networks: {
+    hardhat: {
+      chainId: 31337, // ✅ Keep chainId fixed for consistency
+    },
+    localhost: {
+      url: process.env.LOCAL_RPC_URL || "http://127.0.0.1:8545/",
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      chainId: 31337,
+    },
+  },
 };

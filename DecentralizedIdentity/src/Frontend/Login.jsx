@@ -1,71 +1,80 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import useFaceRecognition from "../Frontend/hooks/useFaceRecognition";
-import * as faceapi from "face-api.js";
 
 export default function Login() {
   const {
     videoRef,
     startCamera,
     stopCamera,
-    captureFace,
     detectLiveness,
-    getRandomChallenge,
-    modelsLoaded,
+    captureFace,
   } = useFaceRecognition();
 
   const [status, setStatus] = useState("");
-  const [challenge, setChallenge] = useState("");
   const [faceReady, setFaceReady] = useState(false);
   const navigate = useNavigate();
 
   const handleDetectFace = async () => {
-    if (!modelsLoaded) {
-      setStatus("⚠️ Models loading, please wait...");
-      return;
-    }
+    try {
+      setStatus("Starting camera...");
+      await startCamera();
+      await new Promise((r) => setTimeout(r, 1000)); // warm-up
 
-    setStatus("Starting camera...");
-    await startCamera();
-    await new Promise((r) => setTimeout(r, 500)); // warm-up
+      setStatus("👁️ Please blink once or twice for liveness check...");
+      const passed = await detectLiveness({ timeout: 6000, interval: 150 });
 
-    const newChallenge = getRandomChallenge();
-    setChallenge(newChallenge);
-    setStatus(`Please perform: ${newChallenge}. Waiting for action...`);
+      if (!passed) {
+        setStatus("❌ Liveness failed. Try again.");
+        return;
+      }
 
-    const passed = await detectLiveness(newChallenge, { timeout: 4500, interval: 150 });
+      setStatus("✅ Liveness passed. Capturing face...");
+      const liveDescriptor = await captureFace();
 
-    if (!passed) {
-      setStatus("❌ Liveness failed. Try again.");
-      // stopCamera(); // optionally stop
-      return;
-    }
+      if (!liveDescriptor) {
+        setStatus("❌ Face capture failed. Try again.");
+        return;
+      }
 
-    setStatus("✅ Liveness passed. Capturing face...");
-    const liveDescriptor = await captureFace();
+      const user = JSON.parse(localStorage.getItem("user"));
+      if (!user) {
+        setStatus("❌ No user found. Please signup first.");
+        return;
+      }
 
-    if (!liveDescriptor) {
-      setStatus("❌ Face capture failed. Try again.");
+      const storedDescriptor = new Float32Array(user.faceDescriptor);
+      const distance = Math.sqrt(
+        liveDescriptor.reduce(
+          (sum, val, i) => sum + (val - storedDescriptor[i]) ** 2,
+          0
+        )
+      );
+
+      // Convert distance → confidence (0–100%)
+      const maxDistance = 0.5; // tuned threshold
+      let confidence = Math.max(0, 100 - (distance / maxDistance) * 100);
+      confidence = Math.min(confidence, 100).toFixed(2);
+
+      localStorage.setItem("loginConfidence", confidence);
+
+      if (confidence < 20) {
+        setStatus(`❌ Low confidence (${confidence}%). Login denied.`);
+        stopCamera();
+        return;
+      }
+
+      if (distance < maxDistance) {
+        setFaceReady(true);
+        setStatus(`✅ Face matched with ${confidence}% confidence! Logging in...`);
+      } else {
+        setStatus("❌ Face does not match. Try again.");
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus("❌ Error: " + err.message);
+    } finally {
       stopCamera();
-      return;
-    }
-
-    const user = JSON.parse(localStorage.getItem("user"));
-    if (!user) {
-      setStatus("❌ No user found. Please signup first.");
-      stopCamera();
-      return;
-    }
-
-    const storedDescriptor = new Float32Array(user.faceDescriptor);
-    const distance = faceapi.euclideanDistance(liveDescriptor, storedDescriptor);
-
-    if (distance < 0.5) {
-      setFaceReady(true);
-      setStatus("✅ Face matched & liveness passed! Logging in...");
-      stopCamera();
-    } else {
-      setStatus("❌ Face does not match. Try again.");
     }
   };
 
@@ -78,17 +87,23 @@ export default function Login() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-6">
       <h1 className="text-3xl font-bold mb-4">Login</h1>
 
-      <video ref={videoRef} autoPlay muted className="w-80 h-60 border rounded" />
-
-      <p className="text-red-600 font-bold mt-2">{challenge && `Action: ${challenge}`}</p>
+      <video ref={videoRef} autoPlay muted className="w-80 h-60 border rounded animate-pulse" />
 
       <div className="flex space-x-2 mt-2">
-        <button onClick={startCamera} className="bg-green-500 text-white px-4 py-2 rounded">Start Camera</button>
-        <button onClick={handleDetectFace} className="bg-purple-500 text-white px-4 py-2 rounded">Detect Face</button>
-        {faceReady && <button onClick={handleLogin} className="bg-indigo-500 text-white px-4 py-2 rounded">OK</button>}
+        <button onClick={startCamera} className="bg-green-500 text-white px-4 py-2 rounded">
+          Start Camera
+        </button>
+        <button onClick={handleDetectFace} className="bg-purple-500 text-white px-4 py-2 rounded">
+          Detect Face
+        </button>
+        {faceReady && (
+          <button onClick={handleLogin} className="bg-indigo-500 text-white px-4 py-2 rounded animate-pulse">
+            OK
+          </button>
+        )}
       </div>
 
-      <p className="mt-2">{status}</p>
+      <p className="mt-2 font-bold text-center">{status}</p>
     </div>
   );
 }

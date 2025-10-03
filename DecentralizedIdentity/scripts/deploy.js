@@ -1,18 +1,24 @@
-import hre from "hardhat";
+import pkg from "hardhat";
+const { ethers } = pkg;
 
 async function main() {
-  const [deployer] = await hre.ethers.getSigners();
-  console.log("🚀 Deploying contract with account:", deployer.address);
+  const [deployer] = await ethers.getSigners();
 
-  const Identity = await hre.ethers.getContractFactory("Identity");
-  const identity = await Identity.deploy();
+  console.log("🚀 Deploying contracts with account:", deployer.address);
 
-  await identity.waitForDeployment();
+  const balance = await ethers.provider.getBalance(deployer.address);
+  console.log("💰 Account balance:", balance.toString());
 
-  console.log("✅ Contract deployed to:", await identity.getAddress());
+  const MyContract = await ethers.getContractFactory("UserRegistry");
+  const contract = await MyContract.deploy();
+
+  console.log("⏳ Waiting for deployment...");
+  await contract.waitForDeployment();
+
+  console.log("✅ Contract deployed to:", await contract.getAddress());
 }
 
 main().catch((error) => {
-  console.error(error);
+  console.error("❌ Deployment error:", error);
   process.exitCode = 1;
 });
