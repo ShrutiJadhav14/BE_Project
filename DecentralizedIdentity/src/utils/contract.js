@@ -2,7 +2,7 @@ import { ethers } from "ethers";
 import Identity from "../contracts/Identity.json";
 
 // Replace with your deployed address
-const CONTRACT_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
+const CONTRACT_ADDRESS = "0xED8CAB8a931A4C0489ad3E3FB5BdEA84f74fD23E";
 
 async function getContract() {
   if (!window.ethereum) {
