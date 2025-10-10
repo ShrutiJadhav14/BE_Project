@@ -62,7 +62,7 @@ export default function Signup() {
     await startCamera();
 
     // Wait a little for camera to initialize
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
     setStatus("👁️ Blink once or twice for liveness check...");
     const passed = await detectLiveness({ timeout: 6000, interval: 50 });
