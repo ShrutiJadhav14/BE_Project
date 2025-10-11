@@ -49,7 +49,7 @@ export default function Dashboard() {
       <h1 className="text-4xl font-bold mb-6">Welcome to Dashboard 🎉</h1>
 
       {user ? (
-        <div className="bg-white shadow-lg rounded-2xl p-6 w-[420px] text-center">
+        <div className="bg-white shadow-lg rounded-2xl p-6 w-[450px] text-center">
           <p className="text-lg mb-4">
             Hello, <strong>{user.name}</strong> ({user.email})<br />
             Wallet: <span className="font-mono">{user.account}</span>
