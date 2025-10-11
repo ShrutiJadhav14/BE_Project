@@ -1,9 +1,9 @@
 // frontend/src/utils/contract.js
 import { ethers } from "ethers";
-import Identity from "../contracts/Identity.json";
+import UserRegistry from "../../artifacts/contracts/UserRegistry.sol/UserRegistry.json"
 
 // Replace with your deployed contract address on Hardhat local
-const CONTRACT_ADDRESS = "0xED8CAB8a931A4C0489ad3E3FB5BdEA84f74fD23E";
+const CONTRACT_ADDRESS = "0xC469e7aE4aD962c30c7111dc580B4adbc7E914DD";
 
 /**
  * Returns a contract instance connected to the signer
@@ -14,10 +14,13 @@ export async function getContract() {
   }
 
   try {
-    const provider = new ethers.BrowserProvider(window.ethereum);
+    const provider = new ethers.BrowserProvider(window.ethereum);   
     await provider.send("eth_requestAccounts", []); // request accounts
     const signer = await provider.getSigner();
-    return new ethers.Contract(CONTRACT_ADDRESS, Identity.abi, signer);
+    const address = await signer.getAddress();
+    console.log("✅ Wallet connected:", address);
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, UserRegistry.abi, signer);
+    return contract;
   } catch (err) {
     console.error("Failed to connect to contract:", err);
     throw err;

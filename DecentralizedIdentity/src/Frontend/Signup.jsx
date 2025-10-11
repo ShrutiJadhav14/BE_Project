@@ -1,4 +1,3 @@
-// frontend/src/Signup.jsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import useFaceRecognition from "../Frontend/hooks/useFaceRecognition";
@@ -99,8 +98,9 @@ export default function Signup() {
       }
       await window.ethereum.request({ method: "eth_requestAccounts" });
 
-      // Get contract (already connected to signer)
-      const contract = await getContract();
+      // ✅ FIXED: get contract, signer, and address properly
+      const { contract, signer, address } = await getContract();
+      console.log("✅ Signer address:", address);
 
       // Derive AES key + encrypt descriptor
       const key = await deriveKeyFromWallet();
@@ -113,14 +113,13 @@ export default function Signup() {
       setStatus("📡 Uploading encrypted face data to IPFS...");
       const cid = await uploadJSON(encrypted);
 
-      // Save on-chain
+      // no need to check contract.signer manually
+      // Save on chain
       setStatus("⛓ Registering user on blockchain...");
       const tx = await contract.registerUser(name, email, cid);
       await tx.wait();
 
-      // Get account address from contract's signer
-      const account = await contract.signer.getAddress();
-      const user = { name, email, account, cid };
+      const user = { name, email, account: address, cid };
       localStorage.setItem("user", JSON.stringify(user));
 
       setStatus("✅ Signup complete. Redirecting...");

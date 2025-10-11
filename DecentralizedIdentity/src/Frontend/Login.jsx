@@ -1,5 +1,6 @@
 // frontend/src/Login.jsx
 import React, { useState } from "react";
+import { ethers } from "ethers";
 import { useNavigate } from "react-router-dom";
 import useFaceRecognition from "../Frontend/hooks/useFaceRecognition";
 import { getContract } from "../utils/contract";
@@ -22,7 +23,9 @@ export default function Login() {
 
       // Get contract connected to signer
       const contract = await getContract();
-      const account = await contract.signer.getAddress();
+      const provider = new ethers.BrowserProvider(window.ethereum)
+      const signer = await provider.getSigner();
+      const account = await signer.getAddress();
 
       setStatus("⛓ Fetching registered user from blockchain...");
       const userData = await contract.getUser(account);
