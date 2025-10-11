@@ -1,4 +1,3 @@
-// frontend/src/Signup.jsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import useFaceRecognition from "../Frontend/hooks/useFaceRecognition";
@@ -12,6 +11,59 @@ export default function Signup() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const navigate = useNavigate();
+
+  const handleDetectFace = async () => {
+    const nameValidation = validateName(name);
+    if (!nameValidation.valid) {
+      setStatus("❌ " + nameValidation.message);
+      return;
+    }
+
+    const emailValidation = validateEmail(email);
+    if (!emailValidation.valid) {
+      setStatus("❌ " + emailValidation.message);
+      return;
+    }
+
+    if (!account) {
+      setStatus("❌ Please connect wallet first");
+      return;
+    }
+
+    setShowCamera(true); // Show camera div
+    setStatus("Starting camera...");
+    await startCamera();
+
+    // Wait a little for camera to initialize
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    setStatus("👁️ Blink once or twice for liveness check...");
+    const passed = await detectLiveness({ timeout: 6000, interval: 50 });
+
+    if (!passed) {
+      setStatus("❌ Liveness failed. Try again.");
+      stopCamera();
+      setShowCamera(false);
+      return;
+    }
+
+    setStatus("✅ Liveness passed. Capturing face...");
+    const descriptor = await captureFace();
+
+    if (descriptor) {
+      localStorage.setItem(
+        "faceDescriptor",
+        JSON.stringify(Array.from(descriptor))
+      );
+      setFaceReady(true);
+      setStatus("✅ Face captured! Click OK to signup.");
+      stopCamera(); // Stop camera after capture
+    } else {
+      setStatus("❌ Face capture failed. Try again.");
+      stopCamera();
+      setShowCamera(false);
+    }
+  };
 
   const handleSignup = async () => {
     try {
@@ -46,8 +98,9 @@ export default function Signup() {
       }
       await window.ethereum.request({ method: "eth_requestAccounts" });
 
-      // Get contract (already connected to signer)
-      const contract = await getContract();
+      // ✅ FIXED: get contract, signer, and address properly
+      const { contract, signer, address } = await getContract();
+      console.log("✅ Signer address:", address);
 
       // Derive AES key + encrypt descriptor
       const key = await deriveKeyFromWallet();
@@ -60,14 +113,13 @@ export default function Signup() {
       setStatus("📡 Uploading encrypted face data to IPFS...");
       const cid = await uploadJSON(encrypted);
 
-      // Save on-chain
+      // no need to check contract.signer manually
+      // Save on chain
       setStatus("⛓ Registering user on blockchain...");
       const tx = await contract.registerUser(name, email, cid);
       await tx.wait();
 
-      // Get account address from contract's signer
-      const account = await contract.signer.getAddress();
-      const user = { name, email, account, cid };
+      const user = { name, email, account: address, cid };
       localStorage.setItem("user", JSON.stringify(user));
 
       setStatus("✅ Signup complete. Redirecting...");
