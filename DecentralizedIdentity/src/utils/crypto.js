@@ -1,53 +1,80 @@
-// frontend/src/utils/crypto.js
 import { ethers } from "ethers";
-import CryptoJS from "crypto-js";
 
 /**
- * Derive a 256-bit AES key from the user's Ethereum wallet.
- * If no signer is passed, it will fetch it from window.ethereum.
+ * Derive AES key securely from the connected MetaMask wallet.
+ * The key is never stored — it’s regenerated every time from wallet signature.
  */
-export async function deriveKeyFromWallet(signer) {
-  try {
-    if (!signer) {
-      if (!window.ethereum) throw new Error("MetaMask not detected");
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      await provider.send("eth_requestAccounts", []);
-      signer = await provider.getSigner();
-    }
+export async function deriveKeyFromWallet() {
+  if (!window.ethereum) throw new Error("MetaMask not detected");
 
-    const message = "Decentralized Identity Key";
-    const signature = await signer.signMessage(message);
-    // Convert signature to AES key (256-bit)
-    const key = CryptoJS.SHA256(signature).toString();
-    return key;
-  } catch (err) {
-    console.error("Failed to derive key from wallet:", err);
-    throw err;
-  }
+  const provider = new ethers.BrowserProvider(window.ethereum);
+  const signer = await provider.getSigner();
+
+  // Ask user to sign a constant message to derive deterministic key
+  const message = "Authorize biometric encryption key";
+  const signature = await signer.signMessage(message);
+
+  // Convert the signature to SHA-256 hash → 256-bit AES key
+  const encoder = new TextEncoder();
+  const data = encoder.encode(signature);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const key = await crypto.subtle.importKey(
+    "raw",
+    hashBuffer,
+    { name: "AES-GCM" },
+    false,
+    ["encrypt", "decrypt"]
+  );
+  return key;
 }
 
 /**
- * Encrypt a JSON object using AES and a 256-bit key
+ * Encrypt JSON object using AES-GCM with random IV and salt.
  */
-export async function encryptData(key, data) {
-  try {
-    const ciphertext = CryptoJS.AES.encrypt(JSON.stringify(data), key).toString();
-    return { ciphertext };
-  } catch (err) {
-    console.error("Failed to encrypt data:", err);
-    throw err;
-  }
+export async function encryptData(key, jsonData) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(JSON.stringify(jsonData));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+
+  const ciphertextBuffer = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    data
+  );
+
+  // Convert to Base64 for easy IPFS storage
+  const ciphertext = btoa(String.fromCharCode(...new Uint8Array(ciphertextBuffer)));
+  const ivBase64 = btoa(String.fromCharCode(...iv));
+
+  return { iv: ivBase64, ciphertext };
 }
 
 /**
- * Decrypt AES-encrypted JSON object using a 256-bit key
+ * Decrypt data from IPFS (AES-GCM)
  */
 export async function decryptData(key, encrypted) {
   try {
-    const bytes = CryptoJS.AES.decrypt(encrypted.ciphertext, key);
-    return JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
+    const iv = Uint8Array.from(atob(encrypted.iv), (c) => c.charCodeAt(0));
+    const ciphertext = Uint8Array.from(atob(encrypted.ciphertext), (c) => c.charCodeAt(0));
+
+    const decryptedBuffer = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv },
+      key,
+      ciphertext
+    );
+
+    const decoder = new TextDecoder();
+    const jsonText = decoder.decode(decryptedBuffer);
+    return JSON.parse(jsonText);
   } catch (err) {
-    console.error("Failed to decrypt data:", err);
-    throw err;
+    console.error("❌ Decryption failed:", err);
+    throw new Error("Corrupted or invalid IPFS data");
   }
+}
+
+/**
+ * Generate random 32-byte verification key (for blockchain check)
+ */
+export function generateVerificationKey() {
+  return ethers.hexlify(ethers.randomBytes(32));
 }

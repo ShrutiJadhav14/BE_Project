@@ -1,166 +1,139 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import useFaceRecognition from "../Frontend/hooks/useFaceRecognition";
-import { getContract } from "../utils/contract";
+import { ethers } from "ethers";
 import { uploadJSON } from "../utils/ipfs";
-import { deriveKeyFromWallet, encryptData } from "../utils/crypto";
+import { encryptData, deriveKeyFromWallet } from "../utils/crypto";
+import { getContract } from "../utils/contract";
+import useFaceRecognition from "../Frontend/hooks/useFaceRecognition";
 
 export default function Signup() {
   const { videoRef, startCamera, stopCamera, detectLiveness, captureFace } = useFaceRecognition();
   const [status, setStatus] = useState("");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const navigate = useNavigate();
+  const [form, setForm] = useState({ name: "", email: "" });
 
-  const handleDetectFace = async () => {
-    const nameValidation = validateName(name);
-    if (!nameValidation.valid) {
-      setStatus("❌ " + nameValidation.message);
-      return;
-    }
-
-    const emailValidation = validateEmail(email);
-    if (!emailValidation.valid) {
-      setStatus("❌ " + emailValidation.message);
-      return;
-    }
-
-    if (!account) {
-      setStatus("❌ Please connect wallet first");
-      return;
-    }
-
-    setShowCamera(true); // Show camera div
-    setStatus("Starting camera...");
-    await startCamera();
-
-    // Wait a little for camera to initialize
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-
-    setStatus("👁️ Blink once or twice for liveness check...");
-    const passed = await detectLiveness({ timeout: 6000, interval: 50 });
-
-    if (!passed) {
-      setStatus("❌ Liveness failed. Try again.");
-      stopCamera();
-      setShowCamera(false);
-      return;
-    }
-
-    setStatus("✅ Liveness passed. Capturing face...");
-    const descriptor = await captureFace();
-
-    if (descriptor) {
-      localStorage.setItem(
-        "faceDescriptor",
-        JSON.stringify(Array.from(descriptor))
-      );
-      setFaceReady(true);
-      setStatus("✅ Face captured! Click OK to signup.");
-      stopCamera(); // Stop camera after capture
-    } else {
-      setStatus("❌ Face capture failed. Try again.");
-      stopCamera();
-      setShowCamera(false);
-    }
-  };
+  const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
   const handleSignup = async () => {
     try {
-      if (!name || !email) {
-        setStatus("❌ Please enter name & email");
+      if (!window.ethereum) {
+        setStatus("❌ MetaMask not detected.");
         return;
       }
 
-      setStatus("Starting camera...");
+      if (!form.name || !form.email) {
+        setStatus("⚠️ Please enter your name and email first.");
+        return;
+      }
+
+      setStatus("🔑 Connecting to wallet...");
+      await window.ethereum.request({ method: "eth_requestAccounts" });
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+      const contract = await getContract();
+
+      // Check if user is already registered
+      setStatus("🔍 Checking existing registration...");
+      const existingUser = await contract.getUser(address);
+      if (existingUser && existingUser.faceHashOrIPFS && existingUser.faceHashOrIPFS !== "") {
+        setStatus("⚠️ User already registered. Please login instead.");
+        return;
+      }
+
+      // Start camera and liveness detection
+      setStatus("🎥 Starting camera...");
       await startCamera();
       await new Promise((r) => setTimeout(r, 1000));
 
-      setStatus("👁 Blink once for liveness check...");
-      const passed = await detectLiveness({ timeout: 6000, interval: 150 });
-      if (!passed) {
-        setStatus("❌ Liveness failed.");
+      setStatus("👁 Detecting liveness...");
+      const live = await detectLiveness({ timeout: 6000, interval: 150 });
+      if (!live) {
+        setStatus("❌ Liveness detection failed. Try again.");
         stopCamera();
         return;
       }
 
-      setStatus("✅ Liveness passed. Capturing face...");
+      setStatus("📸 Capturing face...");
       const descriptor = await captureFace();
       if (!descriptor) {
-        setStatus("❌ Face capture failed.");
+        setStatus("❌ Face capture failed. Try again.");
         stopCamera();
         return;
       }
 
-      if (!window.ethereum) {
-        setStatus("❌ MetaMask not detected");
+      // Encrypt face data with wallet key
+      setStatus("🔐 Deriving encryption key...");
+      const key = await deriveKeyFromWallet();
+
+      const verificationKey = ethers.hexlify(ethers.randomBytes(32));
+      const dataToEncrypt = {
+        faceDescriptor: Array.from(descriptor),
+        verificationKey,
+        walletAddress: address,
+        name: form.name,
+        email: form.email,
+        createdAt: new Date().toISOString(),
+      };
+
+      setStatus("🧩 Encrypting face data...");
+      const encrypted = await encryptData(key, dataToEncrypt);
+      if (!encrypted || !encrypted.ciphertext) {
+        setStatus("❌ Encryption failed.");
+        stopCamera();
         return;
       }
-      await window.ethereum.request({ method: "eth_requestAccounts" });
 
-      // ✅ FIXED: get contract, signer, and address properly
-      const { contract, signer, address } = await getContract();
-      console.log("✅ Signer address:", address);
-
-      // Derive AES key + encrypt descriptor
-      const key = await deriveKeyFromWallet();
-      const encrypted = await encryptData(key, {
-        faceDescriptor: Array.from(descriptor),
-        createdAt: new Date().toISOString(),
-      });
-
-      // Upload encrypted payload to IPFS
-      setStatus("📡 Uploading encrypted face data to IPFS...");
+      // Upload encrypted data to IPFS
+      setStatus("🛰 Uploading encrypted identity to IPFS...");
       const cid = await uploadJSON(encrypted);
+      if (!cid) {
+        setStatus("❌ IPFS upload failed.");
+        stopCamera();
+        return;
+      }
 
-      // no need to check contract.signer manually
-      // Save on chain
-      setStatus("⛓ Registering user on blockchain...");
-      const tx = await contract.registerUser(name, email, cid);
+      // Register user on blockchain
+      setStatus("⛓ Storing identity on blockchain...");
+      const tx = await contract.registerUser(form.name, form.email, cid);
       await tx.wait();
 
-      const user = { name, email, account: address, cid };
-      localStorage.setItem("user", JSON.stringify(user));
-
-      setStatus("✅ Signup complete. Redirecting...");
-      stopCamera();
-      setTimeout(() => navigate("/dashboard"), 1500);
+      setStatus("✅ Registration successful! You can now login.");
     } catch (err) {
       console.error(err);
       setStatus("❌ Error: " + err.message);
+    } finally {
       stopCamera();
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-green-50 p-6">
-      <h1 className="text-3xl font-bold mb-4">Signup</h1>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-6">
+      <h1 className="text-3xl font-bold mb-4 text-purple-700">Signup</h1>
+
+      <video ref={videoRef} autoPlay muted className="w-80 h-60 border rounded mb-3 shadow-lg" />
 
       <input
         type="text"
-        placeholder="Name"
-        className="border p-2 mb-2 w-72 rounded"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
+        name="name"
+        placeholder="Full Name"
+        onChange={handleChange}
+        className="border p-2 rounded mb-2 w-64"
       />
       <input
         type="email"
+        name="email"
         placeholder="Email"
-        className="border p-2 mb-4 w-72 rounded"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
+        onChange={handleChange}
+        className="border p-2 rounded mb-3 w-64"
       />
-
-      <video ref={videoRef} autoPlay muted className="w-80 h-60 border rounded mb-3" />
 
       <button
         onClick={handleSignup}
-        className="bg-purple-600 text-white px-4 py-2 rounded"
+        className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded shadow-md transition"
       >
-        Capture & Signup
+        Register Identity
       </button>
 
-      <p className="mt-2 font-bold">{status}</p>
+      <p className="mt-3 text-sm font-semibold text-gray-800">{status}</p>
     </div>
   );
 }
