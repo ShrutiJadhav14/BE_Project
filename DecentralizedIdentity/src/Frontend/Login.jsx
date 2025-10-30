@@ -1,6 +1,6 @@
 // frontend/src/Login.jsx
 import React, { useState } from "react";
-import { ethers } from "ethers";
+import { ethers, keccak256, toUtf8Bytes } from "ethers";
 import { useNavigate } from "react-router-dom";
 import useFaceRecognition from "../Frontend/hooks/useFaceRecognition";
 import { getContract } from "../utils/contract";
@@ -89,8 +89,18 @@ export default function Login() {
       }
 
       const decrypted = await decryptData(key, encryptedJson);
-      if (!decrypted || !decrypted.faceDescriptor) {
-        throw new Error("Invalid or corrupted IPFS data.");
+      if (!decrypted.walletAddress || decrypted.walletAddress.toLowerCase() !== account.toLowerCase()) {
+        setStatus("❌ Wallet address mismatch — unauthorized user!");
+        stopCamera();
+        return;
+      }
+
+      //hash verification (integrity)
+      const liveHash = keccak256(toUtf8Bytes(liveDescriptor.join(",")));
+      if (liveHash !== decrypted.faceHash) {
+          setStatus("❌ Face hash mismatch — identity tampered or not same person!");
+          stopCamera();
+          return;
       }
 
       // Normalize both before comparing
@@ -107,7 +117,7 @@ export default function Login() {
       localStorage.setItem("loginConfidence", similarityPercent);
 
       // Reject if below threshold
-      if (similarity < 0.6) {
+      if (similarity < 0.8) {
         setStatus(`❌ Face mismatch — unauthorized login attempt! (Similarity: ${similarityPercent}%)`);
         stopCamera();
         return;
