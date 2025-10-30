@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ethers } from "ethers";
+import { ethers, keccak256, toUtf8Bytes } from "ethers";
 import { uploadJSON } from "../utils/ipfs";
 import { encryptData, deriveKeyFromWallet } from "../utils/crypto";
 import { getContract } from "../utils/contract";
@@ -64,13 +64,14 @@ export default function Signup() {
       setStatus("🔐 Deriving encryption key...");
       const key = await deriveKeyFromWallet();
 
-      const verificationKey = ethers.hexlify(ethers.randomBytes(32));
+      // const verificationKey = ethers.hexlify(ethers.randomBytes(32));
+      const faceHash = keccak256(toUtf8Bytes(descriptor.join(",")))
       const dataToEncrypt = {
         faceDescriptor: Array.from(descriptor),
-        verificationKey,
         walletAddress: address,
         name: form.name,
         email: form.email,
+        faceHash,
         createdAt: new Date().toISOString(),
       };
 
