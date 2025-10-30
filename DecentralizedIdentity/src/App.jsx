@@ -1,27 +1,28 @@
 // src/App.jsx
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import Auth from "./Frontend/Auth"; // your dual-panel signup/login component
+import Auth from "./Frontend/Auth"; // Combined Signup/Login component
 import Dashboard from "./Frontend/Dashboard";
 import PrivateRoute from "./Frontend/PrivateRoute";
+import LoginWithEmail from "./Frontend/LoginWithEmail"; // Email OTP login page
+import EmailVerify from "./Frontend/EmailVerify"; // Verification redirect page
 
 function App() {
+  // check login session (from localStorage or Firebase Auth)
+  const isAuthenticated =
+    JSON.parse(localStorage.getItem("user")) || localStorage.getItem("firebaseAuthUser");
+
   return (
     <BrowserRouter>
       <Routes>
-        {/* Root path: Auth component */}
+        {/* Root → Auth (Signup/Login + Face + Fallback options) */}
         <Route
           path="/"
           element={
-            // If user already logged in, redirect to dashboard
-            JSON.parse(localStorage.getItem("user")) ? (
-              <Navigate to="/dashboard" replace />
-            ) : (
-              <Auth />
-            )
+            isAuthenticated ? <Navigate to="/dashboard" replace /> : <Auth />
           }
         />
 
-        {/* Dashboard protected */}
+        {/* Dashboard (Protected route) */}
         <Route
           path="/dashboard"
           element={
@@ -31,7 +32,13 @@ function App() {
           }
         />
 
-        {/* Fallback route: redirect unknown URLs to root */}
+        {/* Email OTP Login route */}
+        <Route path="/login-email" element={<LoginWithEmail />} />
+
+        {/* Firebase Email verification callback */}
+        <Route path="/email-verify" element={<EmailVerify />} />
+
+        {/* Catch-all route */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
