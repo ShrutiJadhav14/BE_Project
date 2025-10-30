@@ -17,6 +17,7 @@
     "@tensorflow/tfjs-backend-cpu": "^3.3.0",
     "@tensorflow/tfjs-backend-webgl": "^3.3.0",
     "@tensorflow/tfjs-core": "^3.3.0",
+    "axios": "^1.13.0",
     "crypto-js": "^4.2.0",
     "dotenv": "^17.2.2",
     "ethers": "^6.15.0",

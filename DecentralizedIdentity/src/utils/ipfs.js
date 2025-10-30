@@ -1,38 +1,63 @@
-// src/utils/ipfs.js
-import { create } from "ipfs-http-client";
+import axios from "axios";
 
-// Connect to local IPFS node (make sure IPFS Desktop or daemon is running)
-const client = create({
-  host: "127.0.0.1",
-  port: 5001,
-  protocol: "http",
-});
+/**
+ * Uploads a JSON object to IPFS using Pinata.
+ * @param {Object} data - The JSON data to upload.
+ * @returns {Promise<string>} - Returns the IPFS CID.
+ */
+export async function uploadJSON(data) {
+  const PINATA_JWT = import.meta.env.VITE_PINATA_JWT;
+  if (!PINATA_JWT) throw new Error("Pinata JWT not found in .env");
 
-// Upload JSON → returns CID string
-export async function uploadJSON(obj) {
-  const data = JSON.stringify(obj);
-  const added = await client.add(data);
-  return added.cid.toString(); // safer than .path
+  try {
+    const res = await axios.post(
+      "https://api.pinata.cloud/pinning/pinJSONToIPFS",
+      data,
+      {
+        headers: {
+          Authorization: `Bearer ${PINATA_JWT}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const cid = res.data.IpfsHash;
+    console.log("✅ Stored on IPFS with CID:", cid);
+    return cid;
+  } catch (err) {
+    console.error("❌ IPFS Upload failed:", err);
+    throw new Error("Failed to upload to IPFS");
+  }
 }
 
-// Fetch JSON by CID (try local first, fallback to public gateway)
+/**
+ * Fetches and validates JSON data from IPFS using multiple gateways.
+ * @param {string} cid - The IPFS CID.
+ * @returns {Promise<Object>} - The parsed JSON data.
+ */
 export async function fetchJSONFromCID(cid) {
+  if (!cid) throw new Error("CID is required to fetch from IPFS");
+
   const gateways = [
-    `http://127.0.0.1:8080/ipfs/${cid}`,     // Local IPFS Desktop / daemon
-    `https://ipfs.io/ipfs/${cid}`,           // Public gateway
-    `https://cloudflare-ipfs.com/ipfs/${cid}` // Another public gateway
+    `https://gateway.pinata.cloud/ipfs/${cid}`,
+    `https://ipfs.io/ipfs/${cid}`,
+    `https://cloudflare-ipfs.com/ipfs/${cid}`,
   ];
 
   for (const url of gateways) {
     try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return await response.json();
+      const res = await axios.get(url, { timeout: 8000 });
+      if (res.data && typeof res.data === "object") {
+        console.log(`📥 Fetched from IPFS (${url}):`, res.data);
+        return res.data;
+      } else {
+        throw new Error("Invalid JSON format");
       }
     } catch (err) {
-      console.warn(`Gateway failed: ${url}`, err);
+      console.warn(`⚠️ Gateway failed (${url}):`, err.message);
+      continue;
     }
   }
 
-  throw new Error(`Failed to fetch CID ${cid} from all gateways`);
+  throw new Error("All IPFS gateways failed to fetch valid JSON");
 }

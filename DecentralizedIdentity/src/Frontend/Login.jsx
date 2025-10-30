@@ -1,7 +1,7 @@
 // frontend/src/Login.jsx
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { ethers } from "ethers";
+import { ethers, keccak256, toUtf8Bytes } from "ethers";
 import { useNavigate } from "react-router-dom";
 import useFaceRecognition from "../Frontend/hooks/useFaceRecognition";
 import { getContract } from "../utils/contract";
@@ -16,12 +16,28 @@ export default function Login() {
   const [emojiState, setEmojiState] = useState("neutral"); // "neutral" | "happy" | "angry"
   const navigate = useNavigate();
 
+  // Normalize a vector
+  const normalize = (arr) => {
+    const mag = Math.sqrt(arr.reduce((sum, v) => sum + v * v, 0));
+    return arr.map((v) => v / mag);
+  };
+
+  // Cosine similarity helper
+  const cosineSimilarity = (a, b) => {
+    if (!a || !b || a.length !== b.length) return 0;
+    const dot = a.reduce((sum, val, i) => sum + val * b[i], 0);
+    const magA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
+    const magB = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0));
+    return (dot / (magA * magB)) || 0;
+  };
+
   const handleDetectFace = async () => {
     try {
       if (!window.ethereum) {
         setStatus("❌ MetaMask not detected");
         return;
       }
+
       await window.ethereum.request({ method: "eth_requestAccounts" });
 
       const contract = await getContract();
@@ -31,17 +47,22 @@ export default function Login() {
 
       setStatus("⛓ Fetching registered user...");
       const userData = await contract.getUser(account);
-      const cid = userData.faceHashOrIPFS;
-      const name = userData.name;
-      const email = userData.email;
 
-      if (!cid) {
+      if (!userData || !userData.faceHashOrIPFS || userData.faceHashOrIPFS === "") {
         setStatus("❌ No user registered. Please signup first.");
         return;
       }
 
-      setStatus("👁 Checking liveness...");
+      const cid = userData.faceHashOrIPFS;
+      const name = userData.name;
+      const email = userData.email;
+
+      // Start camera + liveness
+      setStatus("🎥 Starting camera...");
       await startCamera();
+      await new Promise((r) => setTimeout(r, 1000));
+
+      setStatus("👁 Checking liveness...");
       const passed = await detectLiveness({ timeout: 6000, interval: 150 });
 
       if (!passed) {
@@ -51,6 +72,7 @@ export default function Login() {
         return;
       }
 
+      // Capture face
       setStatus("✅ Liveness passed. Capturing...");
       const liveDescriptor = await captureFace();
       stopCamera();
@@ -61,39 +83,64 @@ export default function Login() {
         return;
       }
 
-      setStatus("📡 Fetching IPFS data...");
+      // Fetch stored encrypted user data from IPFS
+      setStatus("📡 Fetching encrypted user data from IPFS...");
       const encryptedJson = await fetchJSONFromCID(cid);
-      const key = await deriveKeyFromWallet();
-      const decrypted = await decryptData(key, encryptedJson);
-      const storedDescriptor = new Float32Array(decrypted.faceDescriptor);
 
-      const distance = Math.sqrt(
-        liveDescriptor.reduce((sum, val, i) => sum + (val - storedDescriptor[i]) ** 2, 0)
-      );
-      const maxDistance = 0.5;
-      const confidence = Math.max(0, 100 - (distance / maxDistance) * 100).toFixed(2);
-
-      if (confidence < 30) {
-        setEmojiState("angry");
-        setStatus(`❌ Low confidence (${confidence}%) — login denied.`);
-        setAttempts(prev => prev + 1);
-      } else if (distance < maxDistance) {
-        setEmojiState("happy");
-        setStatus(`✅ Face matched (${confidence}%)! Click OK to login.`);
-        setFaceReady(true);
-        localStorage.setItem("user", JSON.stringify({ name, email, account, cid }));
-      } else {
-        setEmojiState("angry");
-        setStatus("❌ Face does not match.");
-        setAttempts(prev => prev + 1);
+      let key;
+      try {
+        key = await deriveKeyFromWallet();
+      } catch {
+        setStatus("❌ Wallet signature required to decrypt identity.");
+        stopCamera();
+        return;
       }
+
+      const decrypted = await decryptData(key, encryptedJson);
+      if (!decrypted.walletAddress || decrypted.walletAddress.toLowerCase() !== account.toLowerCase()) {
+        setStatus("❌ Wallet address mismatch — unauthorized user!");
+        stopCamera();
+        return;
+      }
+
+      // Verify hash integrity
+      const liveHash = keccak256(toUtf8Bytes(liveDescriptor.join(",")));
+      if (liveHash !== decrypted.faceHash) {
+        setStatus("❌ Face hash mismatch — identity tampered or not same person!");
+        setEmojiState("angry");
+        stopCamera();
+        setAttempts((prev) => prev + 1);
+        return;
+      }
+
+      // Compare normalized face descriptors
+      const storedFace = normalize(decrypted.faceDescriptor);
+      const liveFace = normalize(liveDescriptor);
+
+      const similarity = cosineSimilarity(storedFace, liveFace);
+      const similarityPercent = (similarity * 100).toFixed(2);
+      localStorage.setItem("loginConfidence", similarityPercent);
+
+      if (similarity < 0.8) {
+        setStatus(`❌ Face mismatch — unauthorized attempt (${similarityPercent}%)`);
+        setEmojiState("angry");
+        setAttempts((prev) => prev + 1);
+        return;
+      }
+
+      // ✅ Successful match
+      setEmojiState("happy");
+      setStatus(`✅ Verified ${name} (${similarityPercent}% match). Click OK to login.`);
+
+      const userSession = { name, email, account, cid, verifiedAt: new Date().toISOString() };
+      localStorage.setItem("user", JSON.stringify(userSession));
+      setFaceReady(true);
 
     } catch (err) {
       console.error(err);
       setStatus("❌ Error: " + err.message);
       setEmojiState("angry");
-      setAttempts(prev => prev + 1);
-    } finally {
+      setAttempts((prev) => prev + 1);
       stopCamera();
     }
   };

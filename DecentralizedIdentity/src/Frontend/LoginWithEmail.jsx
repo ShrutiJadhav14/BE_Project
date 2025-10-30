@@ -1,33 +1,24 @@
-// src/Frontend/LoginWithEmail.jsx
+// frontend/src/Frontend/LoginWithEmail.jsx
 import React, { useState } from "react";
-import { initializeApp } from "firebase/app";
-import { getAuth, sendSignInLinkToEmail } from "firebase/auth";
-
-// ✅ Firebase config — copy from your Firebase console
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-};
-
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
+import { sendSignInLinkToEmail } from "firebase/auth";
+import { auth } from "../utils/firebase";
 
 export default function LoginWithEmail() {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState("");
+  const [sent, setSent] = useState(false);
 
-  const handleSendLink = async (e) => {
-    e.preventDefault();
+  const handleSendLink = async () => {
     try {
+      if (!email) return setStatus("⚠️ Please enter an email");
       const actionCodeSettings = {
-        url: "http://localhost:5173/email-verify", // Must match Firebase setting
+        url: "http://localhost:5173/email-verify", // redirect route after click
         handleCodeInApp: true,
       };
-
       await sendSignInLinkToEmail(auth, email, actionCodeSettings);
       window.localStorage.setItem("emailForSignIn", email);
-      setStatus("✅ Login link sent! Check your inbox.");
+      setSent(true);
+      setStatus("✅ Verification link sent! Check your inbox.");
     } catch (err) {
       console.error(err);
       setStatus("❌ Error: " + err.message);
@@ -35,30 +26,30 @@ export default function LoginWithEmail() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100">
-      <h1 className="text-3xl font-bold mb-4">Login via Email</h1>
-
-      <form
-        onSubmit={handleSendLink}
-        className="flex flex-col items-center space-y-3"
-      >
-        <input
-          type="email"
-          required
-          placeholder="Enter your email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="border rounded px-3 py-2 w-72"
-        />
-        <button
-          type="submit"
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-        >
-          Send Login Link
-        </button>
-      </form>
-
-      {status && <p className="mt-3 font-medium">{status}</p>}
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-6">
+      <h1 className="text-3xl font-bold mb-4">Login via Email OTP</h1>
+      {!sent ? (
+        <>
+          <input
+            type="email"
+            placeholder="Enter your email"
+            className="border p-2 rounded w-72 mb-3"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <button
+            onClick={handleSendLink}
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+          >
+            Send OTP Link
+          </button>
+        </>
+      ) : (
+        <p className="text-green-600 font-semibold">
+          A link has been sent to your email!
+        </p>
+      )}
+      <p className="mt-3 font-semibold">{status}</p>
     </div>
   );
 }
